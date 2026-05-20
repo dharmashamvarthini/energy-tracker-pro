@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "833887880427",
+    "project_id": "energy-tracker-app-bcf63",
+    "storage_bucket": "energy-tracker-app-bcf63.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:833887880427:android:688a9534a9e37bf880eaae",
+        "android_client_info": {
+          "package_name": "com.example.simple_energy_tracker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "833887880427-hbmdboaj9lip163nhel7d86m773so11t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfT6AWxiugC4yaAtyjlgfTJ4fvsdAqssg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "833887880427-hbmdboaj9lip163nhel7d86m773so11t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
