@@ -1,5 +1,5 @@
 name: energy_tracker_pro
-description: Energy Tracker Pro - Monitor your electricity usage and stress
+description: Energy Tracker Pro - Monitor your electricity stress
 publish_to: 'none'
 version: 2.0.0+1
 
@@ -16,8 +16,6 @@ dependencies:
   
   # Local Storage
   shared_preferences: ^2.2.2
-  sqflite: ^2.3.0
-  path: ^1.9.0
   
   # UI
   cupertino_icons: ^1.0.6
@@ -30,6 +28,10 @@ dependencies:
   
   # Email Notifications
   mailer: ^6.0.0
+  
+  # PDF Generation
+  printing: ^5.12.0
+  pdf: ^3.10.7
 
 dev_dependencies:
   flutter_test:

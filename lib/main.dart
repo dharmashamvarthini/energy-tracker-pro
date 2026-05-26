@@ -5,6 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:mailer/mailer.dart';
+import 'package:mailer/smtp_server/gmail.dart';
+import 'package:printing/printing.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'firebase_options.dart';
 
 void main() async {
@@ -34,22 +39,13 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF121212),
         useMaterial3: true,
       ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.hasData) {
-            return const SplashScreen();
-          } else {
-            return const LoginScreen();
-          }
-        },
-      ),
+      home: const SplashScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
 }
 
-// ==================== SPLASH SCREEN (FLASH LOGO) ====================
+// ==================== SPLASH SCREEN ====================
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -64,7 +60,7 @@ class _SplashScreenState extends State<SplashScreen> {
     Future.delayed(const Duration(seconds: 2), () {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const MainDashboard()),
+        MaterialPageRoute(builder: (context) => const AuthWrapper()),
       );
     });
   }
@@ -125,6 +121,29 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
+// ==================== AUTH WRAPPER ====================
+class AuthWrapper extends StatelessWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasData) {
+          return const MainDashboard();
+        }
+        return const LoginScreen();
+      },
+    );
+  }
+}
+
 // ==================== LOGIN SCREEN ====================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -160,7 +179,15 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on FirebaseAuthException catch (e) {
       setState(() {
-        _error = e.message ?? 'Authentication failed';
+        if (e.code == 'user-not-found') {
+          _error = 'No user found. Create an account first.';
+        } else if (e.code == 'wrong-password') {
+          _error = 'Wrong password. Try again.';
+        } else if (e.code == 'email-already-in-use') {
+          _error = 'Email already exists. Sign in instead.';
+        } else {
+          _error = e.message ?? 'Authentication failed';
+        }
         _isLoading = false;
       });
     }
@@ -227,7 +254,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: Text(_isLogin ? 'Sign In' : 'Create Account'),
                       ),
                     TextButton(
-                      onPressed: () => setState(() => _isLogin = !_isLogin),
+                      onPressed: () => setState(() {
+                        _isLogin = !_isLogin;
+                        _error = '';
+                      }),
                       child: Text(_isLogin ? 'Create new account' : 'Already have an account? Sign In'),
                     ),
                   ],
@@ -250,8 +280,6 @@ class MainDashboard extends StatefulWidget {
 }
 
 class _MainDashboardState extends State<MainDashboard> {
-  int _selectedIndex = 0;
-  
   final TextEditingController _incomeController = TextEditingController(text: '25000');
   final TextEditingController _unitsController = TextEditingController(text: '350');
   final TextEditingController _tariffController = TextEditingController(text: '10');
@@ -271,18 +299,14 @@ class _MainDashboardState extends State<MainDashboard> {
   String _profileImagePath = '';
   bool _isDarkMode = false;
   bool _notificationsEnabled = true;
+  int _selectedIndex = 0;
   double _alertLimit = 500;
   List<String> _activeAlerts = [];
   String _userName = 'User';
   String _userEmail = '';
   bool _notificationSent = false;
   
-  // Bill History List
   List<Map<String, dynamic>> _billHistory = [];
-
-  final List<String> _months = ['Dec 2024', 'Jan 2025', 'Feb 2025', 'Mar 2025', 'Apr 2025', 'May 2025'];
-  final List<double> _usageData = [280, 320, 310, 400, 370, 350];
-  final List<double> _costData = [2800, 3200, 3100, 4000, 3700, 3500];
 
   final Map<String, double> _deviceUsage = {
     'AC': 120, 'TV': 50, 'Fan': 40, 'Fridge': 80, 'Lights': 30, 'Others': 30,
@@ -293,10 +317,55 @@ class _MainDashboardState extends State<MainDashboard> {
     super.initState();
     _loadData();
     _loadBillHistory();
-    _userEmail = FirebaseAuth.instance.currentUser?.email ?? 'user@energy.com';
+    _userEmail = FirebaseAuth.instance.currentUser?.email ?? 'dharmashamvarthini29@gmail.com';
   }
 
-  // Load Bill History from SharedPreferences
+  Future<void> _sendEmailNotification(String stressLevel, double stressPercent, double energyCost, double units) async {
+    if (!_notificationsEnabled) return;
+    
+    String emailTo = _userEmail;
+    String subject = '⚠️ High Energy Stress Alert - Energy Tracker Pro';
+    String body = '''
+Dear $_userName,
+
+⚠️ HIGH ENERGY STRESS ALERT ⚠️
+
+Your energy stress level has exceeded 22%!
+
+📊 Current Statistics:
+• Stress Level: $stressLevel
+• Stress Percentage: ${stressPercent.toStringAsFixed(1)}%
+• Energy Cost: ₹${energyCost.toStringAsFixed(0)}
+• Units Consumed: ${units.toStringAsFixed(0)} kWh
+• Monthly Income: ₹${_incomeController.text}
+
+💡 Recommendations:
+• Consider reducing AC usage
+• Switch to LED bulbs
+• Unplug idle devices
+
+Stay Safe! 🌱
+- Energy Tracker Pro Team
+''';
+
+    try {
+      String username = 'dharmashamvarthini29@gmail.com';
+      String password = 'atmdmwmonomrivhv';  
+      
+      final smtpServer = gmail(username, password);
+      final message = Message()
+        ..from = Address(username, 'Energy Tracker Pro')
+        ..recipients.add(emailTo)
+        ..subject = subject
+        ..text = body;
+      
+      await send(message, smtpServer);
+      print('Email notification sent to $emailTo');
+    } catch (e) {
+      print('Failed to send email: $e');
+    }
+  }
+
   Future<void> _loadBillHistory() async {
     final prefs = await SharedPreferences.getInstance();
     List<String>? historyList = prefs.getStringList('billHistory');
@@ -315,7 +384,6 @@ class _MainDashboardState extends State<MainDashboard> {
     }
   }
 
-  // Save Current Bill to History
   Future<void> _saveCurrentBill() async {
     String now = DateTime.now().toString().substring(0, 10);
     Map<String, dynamic> newBill = {
@@ -340,7 +408,6 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
-  // Delete Bill from History
   Future<void> _deleteBill(int index) async {
     setState(() {
       _billHistory.removeAt(index);
@@ -408,6 +475,21 @@ class _MainDashboardState extends State<MainDashboard> {
     _stressPercent = income > 0 ? (_energyCost / income) * 100 : 0;
     _remainingIncome = income - _energyCost;
     if (_remainingIncome < 0) _remainingIncome = 0;
+
+    if (_stressPercent > 22 && _notificationsEnabled && !_notificationSent) {
+      _sendEmailNotification(_stressLevel, _stressPercent, _energyCost, units);
+      _notificationSent = true;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ High Stress Alert! Email sent to $_userEmail'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } else if (_stressPercent <= 22) {
+      _notificationSent = false;
+    }
 
     if (_stressPercent < 5) {
       _stressLevel = 'Low Stress';
@@ -497,7 +579,7 @@ class _MainDashboardState extends State<MainDashboard> {
     _buildDashboard(),
     _buildInputDataPage(),
     _buildEnergyUsagePage(),
-    _buildBillsHistoryPage(),  // History Page
+    _buildBillsHistoryPage(),
     _buildAlertsPage(),
     _buildRecommendationsPage(),
     _buildReportsPage(),
@@ -588,7 +670,6 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
-  // ==================== BILLS HISTORY PAGE ====================
   Widget _buildBillsHistoryPage() {
     return Column(
       children: [
@@ -825,35 +906,6 @@ class _MainDashboardState extends State<MainDashboard> {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  const Text('📈 Monthly Usage Trend', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    height: 200,
-                    child: BarChart(
-                      BarChartData(
-                        alignment: BarChartAlignment.spaceAround,
-                        maxY: 500,
-                        barGroups: _usageData.asMap().entries.map((entry) => BarChartGroupData(
-                          x: entry.key,
-                          barRods: [BarChartRodData(toY: entry.value, color: const Color(0xFF1A5F7A), width: 30, borderRadius: BorderRadius.circular(6))],
-                        )).toList(),
-                        titlesData: FlTitlesData(
-                          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, _) => Text(_months[value.toInt()]), reservedSize: 40)),
-                          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -927,39 +979,121 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
+  // ==================== REPORTS PAGE WITH WORKING PDF ====================
   Widget _buildReportsPage() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.picture_as_pdf, size: 80, color: Colors.red),
-            const SizedBox(height: 20),
-            const Text('Energy Report', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(15)),
-              child: Column(
-                children: [
-                  _reportRow('User Name', _userName),
-                  _reportRow('Monthly Income', '₹${_incomeController.text}'),
-                  _reportRow('Units Consumed', '${_unitsController.text} kWh'),
-                  _reportRow('Energy Cost', '₹${_energyCost.toStringAsFixed(0)}'),
-                  _reportRow('Stress Level', _stressLevel),
-                  _reportRow('Stress Percentage', '${_stressPercent.toStringAsFixed(1)}%'),
-                ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.picture_as_pdf, size: 80, color: Colors.red),
+              const SizedBox(height: 20),
+              const Text('Energy Report', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Column(
+                  children: [
+                    _reportRow('User Name', _userName),
+                    _reportRow('Email', _userEmail),
+                    _reportRow('Monthly Income', '₹${_incomeController.text}'),
+                    _reportRow('Units Consumed', '${_unitsController.text} kWh'),
+                    _reportRow('Energy Cost', '₹${_energyCost.toStringAsFixed(0)}'),
+                    _reportRow('Stress Level', _stressLevel),
+                    _reportRow('Stress Percentage', '${_stressPercent.toStringAsFixed(1)}%'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: _generatePDF,
+                icon: const Icon(Icons.download),
+                label: const Text('Download PDF Report'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ✅ PDF Generation Function
+  Future<void> _generatePDF() async {
+    final pdf = pw.Document();
+    
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return [
+            pw.Header(
+              level: 0,
+              child: pw.Text(
+                'Energy Tracker Pro - Report',
+                style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
               ),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF Report Downloaded!'))),
-              icon: const Icon(Icons.download),
-              label: const Text('Download PDF Report'),
-            ),
-          ],
-        ),
+            pw.SizedBox(height: 20),
+            pw.Text('Generated on: ${DateTime.now().toString().substring(0, 19)}'),
+            pw.Divider(),
+            pw.SizedBox(height: 20),
+            
+            pw.Header(level: 1, child: pw.Text('User Information')),
+            pw.SizedBox(height: 10),
+            _buildPdfRow('Name', _userName),
+            _buildPdfRow('Email', _userEmail),
+            _buildPdfRow('Mobile', _mobileController.text.isEmpty ? 'Not set' : _mobileController.text),
+            _buildPdfRow('Meter Number', _meterController.text.isEmpty ? 'Not set' : _meterController.text),
+            
+            pw.SizedBox(height: 20),
+            pw.Header(level: 1, child: pw.Text('Energy Statistics')),
+            pw.SizedBox(height: 10),
+            _buildPdfRow('Monthly Income', '₹${_incomeController.text}'),
+            _buildPdfRow('Units Consumed', '${_unitsController.text} kWh'),
+            _buildPdfRow('Tariff per Unit', '₹${_tariffController.text}'),
+            _buildPdfRow('Fixed Charges', '₹${_fixedController.text}'),
+            _buildPdfRow('Family Members', _membersController.text),
+            _buildPdfRow('Energy Cost', '₹${_energyCost.toStringAsFixed(2)}'),
+            
+            pw.SizedBox(height: 20),
+            pw.Header(level: 1, child: pw.Text('Stress Analysis')),
+            pw.SizedBox(height: 10),
+            _buildPdfRow('Stress Percentage', '${_stressPercent.toStringAsFixed(1)}%'),
+            _buildPdfRow('Stress Level', _stressLevel),
+            _buildPdfRow('Recommendation', _advice),
+            
+            pw.SizedBox(height: 30),
+            pw.Text('© Energy Tracker Pro', style: const pw.TextStyle(fontSize: 10)),
+          ];
+        },
+      ),
+    );
+    
+    final bytes = await pdf.save();
+    await Printing.sharePdf(bytes: bytes, filename: 'energy_report_${DateTime.now().millisecondsSinceEpoch}.pdf');
+  }
+
+  pw.Widget _buildPdfRow(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 4),
+      child: pw.Row(
+        children: [
+          pw.SizedBox(width: 150, child: pw.Text(label, style: const pw.TextStyle(fontWeight: pw.FontWeight.bold))),
+          pw.Expanded(child: pw.Text(value)),
+        ],
       ),
     );
   }
